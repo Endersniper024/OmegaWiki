@@ -424,3 +424,127 @@ class TestClaudeMdConsistency:
     def test_log_format_matches(self, skill_content):
         """Log entries follow CLAUDE.md format."""
         assert "init |" in skill_content
+
+
+# ── Recency Filter and Ranking (Phase B/C init-bias countermeasures) ──────
+
+class TestRecencyFilter:
+    """Step 2 Phase B/C date filtering and recency-weighted ranking.
+
+    These parameters counter the init-bias problem: raw citation_count ranking
+    surfaces old foundational papers (e.g. Vaswani 2017) at the expense of
+    frontier work. The date filter is a hard cutoff; the recency weight is a
+    soft bias built into the ranking formula.
+    """
+
+    def test_date_from_param_in_argument_hint(self, skill_content):
+        """--date-from must be advertised in the argument-hint so users see it."""
+        frontmatter = skill_content.split("---", 2)[1] if skill_content.startswith("---") else ""
+        assert "--date-from" in frontmatter, \
+            "--date-from must be declared in the skill frontmatter argument-hint"
+
+    def test_recency_weight_param_in_argument_hint(self, skill_content):
+        """--recency-weight must be advertised in the argument-hint."""
+        frontmatter = skill_content.split("---", 2)[1] if skill_content.startswith("---") else ""
+        assert "--recency-weight" in frontmatter, \
+            "--recency-weight must be declared in the skill frontmatter argument-hint"
+
+    def test_date_from_documented_in_inputs(self, skill_content):
+        """--date-from must be documented in the Inputs section."""
+        inputs_start = skill_content.find("## Inputs")
+        inputs_end = skill_content.find("## Outputs")
+        assert inputs_start != -1 and inputs_end != -1
+        inputs_section = skill_content[inputs_start:inputs_end]
+        assert "--date-from" in inputs_section, \
+            "--date-from must be documented under ## Inputs"
+        # Both granularities should be mentioned — either the literal YYYY-MM token
+        # or an example month like 2024-07.
+        import re as _re
+        assert ("YYYY-MM" in inputs_section
+                or "YYYY[-MM]" in inputs_section
+                or _re.search(r"\b\d{4}-\d{2}\b", inputs_section)), \
+            "Inputs must document that --date-from accepts YYYY-MM month granularity"
+
+    def test_recency_weight_documented_in_inputs(self, skill_content):
+        """--recency-weight must be documented in the Inputs section with a default."""
+        inputs_start = skill_content.find("## Inputs")
+        inputs_end = skill_content.find("## Outputs")
+        inputs_section = skill_content[inputs_start:inputs_end]
+        assert "--recency-weight" in inputs_section
+        assert "0.3" in inputs_section, \
+            "Inputs must document the default recency-weight value (0.3)"
+
+    def test_phase_b_uses_sqrt_citation_ranking(self, skill_content):
+        """Phase B ranking formula must use sqrt(citation_count), not raw citation_count.
+        This is the dampening that prevents a single seminal paper from dominating."""
+        assert "sqrt(citation_count)" in skill_content, \
+            "Phase B must dampen citation_count with sqrt() per the init-bias fix"
+
+    def test_phase_b_uses_exp_decay_recency(self, skill_content):
+        """Phase B ranking formula must include exp(-W × age_years) recency decay."""
+        assert "exp(-W" in skill_content, \
+            "Phase B must use exp(-W × age) for soft recency bias"
+
+    def test_phase_b_mentions_publication_date(self, skill_content):
+        """Phase B must reference publicationDate (new S2 field) for date filtering."""
+        assert "publicationDate" in skill_content, \
+            "Phase B must read publicationDate from S2 results for the date filter"
+
+    def test_year_only_fallback_documented(self, skill_content):
+        """Candidates without publicationDate must fall back to year. The fallback
+        direction differs for the filter (benefit-of-doubt → December) vs the
+        weight (neutral → mid-year)."""
+        # The skill should explain both fallback directions.
+        content_lower = skill_content.lower()
+        assert ("december" in content_lower or "12 月" in skill_content), \
+            "Date filter fallback (year → December) must be documented"
+        assert ("mid-year" in content_lower or "july 1" in content_lower
+                or "年中" in skill_content or "7 月" in skill_content), \
+            "Recency weight fallback (year → mid-year) must be documented"
+
+    def test_local_papers_exempt_from_date_filter(self, skill_content):
+        """The date filter must NOT apply to user-provided local papers (Phase A)."""
+        inputs_start = skill_content.find("## Inputs")
+        inputs_end = skill_content.find("## Outputs")
+        inputs_section = skill_content[inputs_start:inputs_end]
+        content_lower = inputs_section.lower()
+        assert ("phase a" in content_lower or "local paper" in content_lower
+                or "本地" in inputs_section), \
+            "Inputs must state that --date-from does not apply to local papers"
+
+    def test_phase_c_also_applies_filter(self, skill_content):
+        """Phase C must apply the same date filter and ranking as Phase B."""
+        # Find Phase C section and verify date filter is mentioned.
+        phase_c_start = skill_content.find("Phase C")
+        assert phase_c_start != -1
+        phase_c_end = skill_content.find("Phase D", phase_c_start)
+        phase_c = skill_content[phase_c_start:phase_c_end]
+        assert "--date-from" in phase_c, \
+            "Phase C must apply the --date-from filter same as Phase B"
+
+    def test_invalid_date_format_rejected(self, skill_content):
+        """Error handling must reject invalid --date-from formats rather than silently ignore them."""
+        errors_start = skill_content.find("## Error Handling")
+        errors_section = skill_content[errors_start:]
+        assert "--date-from" in errors_section, \
+            "Error Handling must cover invalid --date-from format"
+
+    def test_negative_recency_weight_rejected(self, skill_content):
+        """--recency-weight validation must be documented in Error Handling.
+        Negative values are allowed (deliberately amplifies old papers — useful
+        for surveying historical work); only non-finite values (NaN/inf) and
+        extreme magnitudes need handling."""
+        errors_start = skill_content.find("## Error Handling")
+        errors_section = skill_content[errors_start:]
+        assert "--recency-weight" in errors_section, \
+            "Error Handling must document --recency-weight validation"
+
+    def test_step8_reports_filter_stats(self, skill_content):
+        """Step 8 must report how many candidates were dropped by the date filter."""
+        step8_start = skill_content.find("### Step 8")
+        step9_or_constraints = skill_content.find("## Constraints", step8_start)
+        step8 = skill_content[step8_start:step9_or_constraints]
+        content_lower = step8.lower()
+        assert ("--date-from" in step8 or "date filter" in content_lower
+                or "date cutoff" in content_lower or "日期过滤" in step8), \
+            "Step 8 must report date-filter stats when --date-from is used"

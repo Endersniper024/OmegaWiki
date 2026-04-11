@@ -113,7 +113,7 @@ cp config/settings.local.json.example .claude/settings.local.json
 | Command | What it does |
 |---------|-------------|
 | `/prefill <domain>` | Seed `foundations/` with background knowledge (suggested before `/init`) |
-| `/init <topic>` | Bootstrap a full wiki from `raw/` |
+| `/init <topic> [--date-from YYYY[-MM]] [--recency-weight W]` | Bootstrap a full wiki from `raw/`. Optional `--date-from` is a hard cutoff for S2/DeepXiv-discovered papers; `--recency-weight W` (default `0.3`) is a soft recency bias on the discovery ranking — positive demotes older papers, negative biases toward older/historical work, `0` disables. |
 | `/ingest <source>` | Parse a paper → wiki pages + cross-references |
 | `/edit <request>` | Add/remove sources or update wiki content |
 | `/ask <question>` | Query the wiki, crystallize answers back |
@@ -325,7 +325,7 @@ claude
 | `/setup` | 首次配置（API key、语言、依赖） |
 | `/reset` | 按范围销毁性清理：`wiki \| raw \| log \| checkpoints \| all` |
 | `/prefill` | 预填 `foundations/` 背景知识（建议在 `/init` 之前运行） |
-| `/init` | 从 raw/ 搭建完整 wiki |
+| `/init <topic> [--date-from YYYY[-MM]] [--recency-weight W]` | 从 raw/ 搭建完整 wiki。可选 `--date-from` 对 S2/DeepXiv 发现的论文施加硬性日期下限；`--recency-weight W`（默认 `0.3`）是发现排序的软性时效性偏置 —— 正值降权旧论文，负值反向偏向历史/奠基工作，`0` 关闭。 |
 | `/ingest` | 消化论文，创建页面 + 交叉引用 |
 | `/edit` | 增删 raw 或更新 wiki |
 | `/ask` | 对 wiki 提问 |

@@ -1,6 +1,6 @@
 ---
 description: 从 raw/ 目录搭建完整的 ΩmegaWiki，包括论文、概念、方向、人物页面，并初始化 ideas/experiments/claims 和 graph
-argument-hint: "[topic]"
+argument-hint: "[topic] [--date-from YYYY[-MM]] [--recency-weight W]"
 ---
 
 # /init
@@ -14,6 +14,8 @@ argument-hint: "[topic]"
 - `topic`：研究方向关键词（如 "efficient fine-tuning for LLMs"）
 - `raw/papers/` 中的 .tex / .pdf 文件
 - 可选：`raw/notes/`、`raw/web/` 中的笔记和网页
+- `--date-from YYYY[-MM]`（可选，无默认值）：对发现的论文施加硬性日期过滤。Phase B（引用链）或 Phase C（关键词搜索）中发表日期严格早于该 cutoff 的候选论文在排序前被丢弃。接受年粒度（`--date-from 2023`，等价于 `2023-01`）或月粒度（`--date-from 2024-07`）。**不适用于 Phase A 中用户本地提供的论文** — 用户显式放入 `raw/papers/` 的论文无论日期如何都必须保留。
+- `--recency-weight W`（可选，默认 `0.3`）：在下文 Phase B/C 排序公式中以 `exp(-W × age_years)` 形式应用的软性时效性偏置。正值降权旧论文；`W = 0` 完全关闭时效性；**允许负值**，反向偏向旧论文（适合刻意调研历史工作）。默认 `0.3` 下，3 年前论文得分约为当代论文的 41%，5 年前约 22%，10 年前约 5%。这是软性偏置，不是硬性截断 —— 需要硬性日期下限请用 `--date-from`。典型取值范围：`-0.5`–`0.5`。
 
 ## Outputs
 
@@ -101,11 +103,33 @@ python3 tools/fetch_s2.py references <arxiv_id>
 python3 tools/fetch_s2.py citations <arxiv_id>
 ```
 
+每条 S2 返回结果除 `year` 之外还包含 `publicationDate` 字段（YYYY-MM-DD 格式，部分较旧论文可能为 null）。下文的过滤和排序同时使用这两个字段。
+
 从合并结果中：
-1. 过滤掉已在 `local_papers` 中的论文（按 arxiv_id 或标题匹配）
-2. 按 `引用量 × 与 topic 的相关度` 排序（相关度通过标题/摘要与 `<topic>` 的语义重叠判断）
-3. 选出 **top 3–5** 篇明显属于该领域核心但用户未收录的论文
-4. 这些通常是用户默认了解的奠基性工作，或其遗漏的重要后续研究
+
+1. **去重**：过滤掉已在 `local_papers` 中的论文（按 arxiv_id 或标题匹配）。
+
+2. **应用日期过滤**（当传入 `--date-from` 时）：丢弃发表日期严格早于 cutoff 的候选论文。
+   - 将 `--date-from` 解析为 `YYYY` 或 `YYYY-MM`。纯年份等价于 `YYYY-01`（保留该年全年）。
+   - 优先使用候选论文的 `publicationDate`。当 `publicationDate` 为 null 或缺失时，回退到 `year` 并将候选论文视为**该年 12 月**发表（存疑时倾向保留而非丢弃）。因此年度精度的候选论文只要年份等于 cutoff 年份就一定会被保留。
+   - 记录被过滤掉的候选论文并标注原因"below date cutoff"，供 Step 8 报告使用。
+
+3. **对保留的候选论文按以下公式排序**：
+   ```
+   score = relevance_to_topic × sqrt(citation_count) × exp(-W × age_years)
+   ```
+   其中：
+   - `relevance_to_topic`：标题/摘要与 `<topic>` 的重叠度（0.0–1.0）
+   - `sqrt(citation_count)`：对引用量的阻尼变换。保持少引用与多引用论文的可区分度（10 vs 100 引用 → 3.2 倍差距），同时避免单篇 50k 引用的奠基论文完全压倒排序（线性 citation count 会出现这种情况）。
+   - `exp(-W × age_years)`：软性时效性衰减。`W = --recency-weight`（默认 `0.3`）。`age_years = (current_date - paper_date).days / 365.25`。
+     - 对于有 `publicationDate` 的候选，直接使用该日期。
+     - 对于只有年份的候选（无 `publicationDate`），使用**年中（7 月 1 日）**计算 age。这里与日期过滤的 fallback（12 月）刻意不同：此处需要的是中性的 age 估计，而非带方向的存疑倾向。
+     - 在 `W = 0.3` 下，3 年前的论文分数约为同相关度、同引用量今年论文的 41%，5 年前约 22%，10 年前约 5%。
+     - 若传入 `--recency-weight 0`，则完全忽略时效性，排序退化为 `relevance × sqrt(citation_count)`。
+     - 若 `W` 为负，因子变为 `exp(|W| × age_years)`，旧论文反而被放大而非降权。
+     - **溢出保护**：在执行 `exp` 之前，将指数的绝对值 `|W × age_years|` 截断到 `50`。这可以防止极端输入下 `math.exp` 出现 overflow / underflow（例如误传 `W = 10` 与一篇 50 年前的老论文相乘），同时仍保留 `e^±50 ≈ 10^±22` 的动态范围 —— 远远足以对任何现实候选集合做出完整排序。
+
+4. **选出 top 3–5 篇**保留下来的候选论文。这些就是 Phase D 要下载的论文。日期过滤与时效性衰减共同应对"init 偏差"问题 — 原先的纯引用量排序会把老的奠基论文（例如 2025 年 LoRA init 时的 "Attention Is All You Need"）推到前列，挤掉前沿工作。
 
 #### Phase C — 关键词搜索补充（填补覆盖空白）
 
@@ -121,9 +145,16 @@ python3 tools/fetch_deepxiv.py search "<topic>" --mode hybrid --limit 10
 ```
 
 从合并结果中：
-1. 与 `local_papers` + Phase B 已选结果去重
-2. 选出 **1–3 篇** 能填补空白的论文（例如：不同方法路线、综述、或非常新的论文）
-3. **如果头部结果都与已有论文重叠，则不添加**——不凑数
+
+1. **去重**：与 `local_papers` + Phase B 已选结果去重。
+
+2. **应用 `--date-from` 过滤**（与 Phase B 语义一致）：丢弃发表日期严格早于 cutoff 的候选。优先 `publicationDate`，缺失时回退到 `year` 并视为 12 月。记录被过滤掉的候选论文供 Step 8 报告。DeepXiv 结果完全没有发表日期时，按只有年份的 fallback 处理（使用其提供的年份字段）。
+
+3. **对保留的候选按与 Phase B 相同的公式排序**：`relevance_to_topic × sqrt(citation_count) × exp(-W × age_years)`。此处排序是次要因素 —— 主要逻辑仍是下面的"填补空白"启发式；排序用于打破平手、降低边际候选的优先级。
+
+4. **选出 1–3 篇** 能填补空白的论文（例如：不同方法路线、综述、或非常新的未被引用链扩展覆盖的论文）。多个候选填补相同空白时，优先取排序靠前的。
+
+5. **如果头部结果都与已有论文重叠，则不添加**——不凑数。
 
 **若 DeepXiv 不可用**：仅依赖 S2 搜索。
 
@@ -447,6 +478,7 @@ python3 tools/research_wiki.py checkpoint-clear wiki/ "init-session"
 - graph edges 数量
 - lint 发现的问题（若有）
 - 生成的初始 ideas（若有）
+- **发现阶段过滤统计**（当 `--date-from` 被传入时）："N 篇候选被日期过滤丢弃（cutoff: <值>)" —— 列出被丢弃的候选论文标题，便于用户审核 cutoff 是否过严。若 `--recency-weight` 不同于默认值，注明所用值。
 - 建议下一步：
   - 手动 `/ingest` 更多论文
   - 阅读 `wiki/Summary/` 查看领域全景
@@ -469,6 +501,9 @@ python3 tools/research_wiki.py checkpoint-clear wiki/ "init-session"
 
 - **raw/ 为空**：仅通过 arXiv/S2 搜索获取论文，在报告中注明
 - **arXiv/S2/DeepXiv 搜索失败**：跳过失败的外部搜索源，使用其余可用源 + raw/ 中已有文件
+- **`--date-from` 格式非法**：只接受 `YYYY` 和 `YYYY-MM`。任何其他格式（如 `YYYY-MM-DD`、`2024/07`、`July 2024`）必须在任何 API 调用之前以明确错误消息拒绝 —— 不得静默退化为"无过滤"。
+- **`--date-from` 导致 Phase B 无候选存活**：仍然进入 Phase C（用户可能刻意设置了激进的 cutoff 以期关键词搜索补充）。若 Phase C 过滤后仍为空，在报告中说明 cutoff 过严并仅使用本地论文继续 init。**不**自动放宽 cutoff。
+- **`--recency-weight` 极端值**：接受任意有限浮点数，**包括负值**（负的 W 会刻意偏向旧论文 —— 当用户希望让历史/奠基论文浮上来时，这是合法用法）。唯一硬性拒绝的是非有限输入（`NaN`、`±inf`）。为避免 `exp(-W × age_years)` 内部的浮点 overflow，在执行 `exp` 之前将指数绝对值 `|W × age_years|` 截断到 `50`（保留 `e^±50 ≈ 10^±22` 的动态范围，远远足以完整排序任何现实候选集合）。当 `|W| > 1.0` 时，警告用户排序将近乎退化（一头独大），但继续执行。
 - **单篇论文 ingest 失败**：记录到 checkpoint（`--failed`），跳过该论文继续处理，在最终报告中列出失败项
 - **中途中断**：下次运行 `/init` 时自动检测 checkpoint，从断点继续（跳过已完成的论文）
 - **wiki/ 已存在内容**：检测已有页面，跳过已存在的 entity，仅补充新内容（幂等性）

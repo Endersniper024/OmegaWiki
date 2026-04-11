@@ -1,6 +1,6 @@
 ---
 description: Bootstrap a complete ΩmegaWiki from the raw/ directory, including papers, concepts, topics, and people pages, and initialize ideas/experiments/claims and the graph
-argument-hint: "[topic]"
+argument-hint: "[topic] [--date-from YYYY[-MM]] [--recency-weight W]"
 ---
 
 # /init
@@ -14,6 +14,8 @@ argument-hint: "[topic]"
 - `topic`: research direction keywords (e.g. "efficient fine-tuning for LLMs")
 - `.tex` / `.pdf` files in `raw/papers/`
 - Optional: notes and web pages in `raw/notes/`, `raw/web/`
+- `--date-from YYYY[-MM]` (optional, no default): hard filter on discovered papers. Any candidate from Phase B (citation-chain) or Phase C (keyword search) whose publication date is strictly before this cutoff is dropped before ranking. Accepts year granularity (`--date-from 2023`, equivalent to `2023-01`) or month granularity (`--date-from 2024-07`). Does NOT apply to user-provided local papers in Phase A — if the user explicitly put a paper in `raw/papers/`, respect that choice regardless of its date.
+- `--recency-weight W` (optional, default `0.3`): soft recency bias applied as `exp(-W × age_years)` in the Phase B/C ranking formula below. Positive W demotes older papers; `W = 0` disables recency entirely; **negative W is allowed** and biases toward older papers (useful when deliberately surveying historical work). At the `0.3` default, a 3-year-old paper scores ~41% of a current one, 5-year ~22%, 10-year ~5%. This is a soft nudge, not a hard cutoff — for hard date floors use `--date-from`. Typical range: `-0.5`–`0.5`.
 
 ## Outputs
 
@@ -101,11 +103,33 @@ python3 tools/fetch_s2.py references <arxiv_id>
 python3 tools/fetch_s2.py citations <arxiv_id>
 ```
 
+Each S2 result now includes a `publicationDate` field (YYYY-MM-DD, may be null for some older papers) alongside `year`. Both are used below.
+
 From the combined results:
-1. Filter out papers already in `local_papers` (by arxiv_id or title match)
-2. Rank by: `citation_count × relevance_to_topic` (relevance judged by title/abstract overlap with `<topic>`)
-3. Select the **top 3–5** that are clearly central to the field but missing from the user's collection
-4. These are typically seminal works the user assumed, or important follow-ups they missed
+
+1. **Deduplicate**: filter out papers already in `local_papers` (by arxiv_id or title match).
+
+2. **Apply date filter** (if `--date-from` was passed): drop any candidate whose publication date is strictly before the cutoff.
+   - Parse `--date-from` as `YYYY` or `YYYY-MM`. A bare year is equivalent to `YYYY-01` (keep all of that year).
+   - Prefer the candidate's `publicationDate` when available. When `publicationDate` is null or missing, fall back to `year` and treat the candidate as published on **December of that year** (benefit of the doubt — keep on ambiguity rather than drop). This means a year-only candidate from exactly the cutoff year is always kept.
+   - Record filtered-out candidates with reason "below date cutoff" for the Step 8 report.
+
+3. **Rank surviving candidates** by:
+   ```
+   score = relevance_to_topic × sqrt(citation_count) × exp(-W × age_years)
+   ```
+   where:
+   - `relevance_to_topic`: title/abstract overlap with `<topic>` (0.0–1.0)
+   - `sqrt(citation_count)`: dampened citation count. Keeps small-vs-large papers meaningfully distinguishable (10 vs 100 citations → 3.2× ratio) without letting a single 50k-cite seminal paper dominate the ranking (as raw citation count would).
+   - `exp(-W × age_years)`: soft recency decay. `W = --recency-weight` (default `0.3`). `age_years = (current_date - paper_date).days / 365.25`.
+     - For candidates with `publicationDate`, use it directly.
+     - For year-only candidates (no `publicationDate`), use **mid-year (July 1)** of that year for the age calculation. This is deliberately different from the date-filter fallback (December): here we want a neutral age estimate, not a benefit-of-the-doubt direction.
+     - At `W = 0.3`, a 3-year-old paper gets ~41% the score of a same-relevance, same-citation paper from this year, a 5-year-old paper ~22%, and a 10-year-old paper ~5%.
+     - If `--recency-weight 0` is passed, recency is ignored entirely and ranking reduces to `relevance × sqrt(citation_count)`.
+     - If `W` is negative, the factor becomes `exp(|W| × age_years)` and old papers are amplified rather than demoted.
+     - **Overflow guard**: before exponentiating, clamp the exponent magnitude `|W × age_years|` at `50`. This prevents `math.exp` overflow / underflow on extreme inputs (e.g. a misconfigured `W = 10` against a 50-year-old paper) while still leaving a dynamic range of `e^±50 ≈ 10^±22` — more than enough to fully order any realistic candidate set.
+
+4. **Select the top 3–5** remaining candidates. These are the papers to download in Phase D. The date filter plus recency decay together counter the "init bias" problem, where raw citation-count ranking would surface old foundational papers (e.g. "Attention Is All You Need" in a 2025 LoRA init) at the expense of frontier work.
 
 #### Phase C — Keyword search supplement (fill coverage gaps)
 
@@ -121,9 +145,16 @@ python3 tools/fetch_deepxiv.py search "<topic>" --mode hybrid --limit 10
 ```
 
 From the combined results:
-1. Deduplicate against `local_papers` + Phase B selections
-2. Select **1–3 papers** that cover a gap (e.g., a different approach, a survey, or a very recent paper)
-3. **Skip if all top results overlap** with what we already have — do not add marginal papers
+
+1. **Deduplicate** against `local_papers` + Phase B selections.
+
+2. **Apply `--date-from` filter** (same semantics as Phase B): drop candidates whose publication date is strictly before the cutoff. Prefer `publicationDate`, fall back to `year` as December of that year. Record filtered-out candidates with reason "below date cutoff" for the Step 8 report. DeepXiv results that lack a publication date entirely: treat as year-only fallback using whatever year field they provide.
+
+3. **Rank surviving candidates** with the same formula as Phase B: `relevance_to_topic × sqrt(citation_count) × exp(-W × age_years)`. The ranking here is secondary to the "cover a gap" heuristic below — use it to break ties and demote marginal additions.
+
+4. **Select 1–3 papers** that cover a gap (e.g., a different approach, a survey, or a very recent paper not yet surfaced by citation-chain expansion). Prefer higher-ranked candidates when multiple cover the same gap.
+
+5. **Skip if all top results overlap** with what we already have — do not add marginal papers.
 
 **If DeepXiv is unavailable**: rely on S2 search only.
 
@@ -449,6 +480,7 @@ Output a summary including:
 - Number of graph edges
 - Issues found by lint (if any)
 - Initial ideas generated (if any)
+- **Discovery filtering stats** (if `--date-from` was set): "N candidates dropped by date filter (cutoff: <value>)" — list the dropped candidate titles so the user can audit whether the cutoff was too aggressive. If `--recency-weight` differs from the default, note the value used.
 - Suggested next steps:
   - Manually `/ingest` more papers
   - Read `wiki/Summary/` for the domain landscape
@@ -471,6 +503,9 @@ Output a summary including:
 
 - **raw/ is empty**: fetch papers via arXiv/S2 search only; note in report
 - **arXiv/S2/DeepXiv search fails**: skip the failing external source, use the remaining available sources + files already in raw/
+- **Invalid `--date-from` format**: only `YYYY` and `YYYY-MM` are accepted. Anything else (e.g. `YYYY-MM-DD`, `2024/07`, `July 2024`) should be rejected with a clear error message before any API calls are made — do not silently fall through to "no filter applied".
+- **`--date-from` leaves no surviving candidates in Phase B**: proceed to Phase C anyway (the user may have set an aggressive cutoff expecting keyword search to cover the gap). If Phase C also yields nothing after filtering, report that the date cutoff was too restrictive and continue init with only the local papers. Do not auto-relax the cutoff.
+- **`--recency-weight` extreme magnitude**: accept any finite float, including negative values (negative W deliberately biases toward older papers — a valid use case when the user wants antique/foundational work to surface). The only hard rejection is non-finite input (`NaN`, `±inf`). To avoid floating-point overflow inside `exp(-W × age_years)`, clamp the exponent magnitude `|W × age_years|` at `50` before exponentiating (preserves a dynamic range of `e^±50 ≈ 10^±22`, far more than enough to fully order any realistic candidate set). When `|W| > 1.0`, warn the user that the ranking will be near-degenerate (one direction or the other will dominate) but proceed.
 - **Single paper ingest fails**: record to checkpoint (`--failed`), skip that paper and continue; list failures in the final report
 - **Interrupted mid-run**: next time `/init` runs, it automatically detects the checkpoint and resumes from where it left off (skipping already-completed papers)
 - **wiki/ already has content**: detect existing pages, skip entities that already exist, only supplement new content (idempotent)

@@ -21,7 +21,7 @@ import _env  # noqa: F401 — load .env files for API keys
 import requests
 
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
-FIELDS = "paperId,title,abstract,authors,year,citationCount,venue,externalIds,url"
+FIELDS = "paperId,title,abstract,authors,year,publicationDate,citationCount,venue,externalIds,url"
 S2_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
 RATE_LIMIT_DELAY = 1.0 if S2_API_KEY else 3.0  # faster with API key
 MAX_RETRIES = 3

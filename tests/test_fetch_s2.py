@@ -252,6 +252,27 @@ class TestReferences:
 
 
 # ---------------------------------------------------------------------------
+# FIELDS constant
+# ---------------------------------------------------------------------------
+
+
+class TestFieldsConstant:
+    """Tests for the FIELDS constant passed to every S2 request."""
+
+    def test_fields_includes_publication_date(self):
+        """publicationDate must be requested so /init recency-weight and date-from filter can work."""
+        assert "publicationDate" in FIELDS
+
+    def test_fields_includes_year(self):
+        """year is the fallback when publicationDate is missing."""
+        assert "year" in FIELDS
+
+    def test_fields_includes_citation_count(self):
+        """citationCount drives the sqrt-dampened ranking in /init Phase B."""
+        assert "citationCount" in FIELDS
+
+
+# ---------------------------------------------------------------------------
 # Rate limiting / retries
 # ---------------------------------------------------------------------------
 
