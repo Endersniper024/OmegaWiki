@@ -190,7 +190,6 @@ Revise the experiment plan based on Review LLM feedback (add missing experiments
    ```bash
    python3 tools/research_wiki.py slug "<experiment-title>"
    ```
-   Create `wiki/experiments/{slug}.md`:
    Create `wiki/experiments/{slug}.md` following the **CLAUDE.md experiments template exactly** — every field below must be present even if empty, because `/exp-run` later uses `tools/research_wiki.py set-meta` to update them, and `set-meta` refuses to create fields that don't already exist in the frontmatter (it only updates existing keys):
    ```yaml
    ---

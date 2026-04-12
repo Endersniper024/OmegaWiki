@@ -190,8 +190,6 @@ mcp__llm-review__chat:
    ```bash
    python3 tools/research_wiki.py slug "<experiment-title>"
    ```
-   创建 `wiki/experiments/{slug}.md`：
-   ```yaml
    创建 `wiki/experiments/{slug}.md`，**严格遵循 CLAUDE.md experiments template** —— 下方所有字段都必须存在（即使为空），因为 `/exp-run` 稍后会用 `tools/research_wiki.py set-meta` 来更新它们，而 `set-meta` 拒绝创建 frontmatter 中不存在的字段（它只更新已存在的 key）：
    ```yaml
    ---
