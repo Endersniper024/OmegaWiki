@@ -31,3 +31,12 @@ Thumbs.db
 
 # Raw data (large files managed separately)
 raw/papers/*.pdf
+
+# Reconnaissance cloned repos (large, not version-controlled)
+references/
+
+# Experiment workspaces (generated code, results, venvs)
+experiments/code/*/.venv/
+experiments/code/*/.pid
+experiments/code/*/wandb/
+experiments/code/*/checkpoints/

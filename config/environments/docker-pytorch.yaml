@@ -1,0 +1,8 @@
+# Docker PyTorch environment preset (stub)
+backend: docker
+image: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+gpu: true
+volumes:
+  - "./data:/workspace/data"
+  - "./results:/workspace/results"
+notes: "Docker backend not yet implemented — use local or remote-ssh"

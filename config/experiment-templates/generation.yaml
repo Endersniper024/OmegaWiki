@@ -1,0 +1,26 @@
+# Generation experiment template (seq2seq, LM, etc.)
+type: generation
+metrics: [bleu, rouge-l, perplexity]
+
+training:
+  epochs: 30
+  batch_size: 16
+  learning_rate: 5e-5
+  optimizer: adamw
+  weight_decay: 0.01
+  scheduler: linear
+  warmup_steps: 500
+  gradient_clip: 1.0
+  mixed_precision: true
+  gradient_checkpointing: true
+
+evaluation:
+  split: test
+  max_gen_length: 256
+  beam_size: 4
+  num_samples: -1
+
+pilot:
+  max_epochs: 2
+  max_samples: 500
+  timeout_minutes: 20

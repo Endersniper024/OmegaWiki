@@ -1,0 +1,9 @@
+# Remote A100 GPU server preset
+# Actual connection details come from config/server.yaml
+backend: remote-ssh
+gpu: true
+default_gpu: 0
+gpu_type: A100
+gpu_memory_gb: 80
+max_batch_size_hint: 64
+notes: "Remote A100 server — configure connection in config/server.yaml"

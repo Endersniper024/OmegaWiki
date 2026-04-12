@@ -1,0 +1,24 @@
+# Reinforcement learning experiment template
+type: reinforcement
+metrics: [mean_reward, episode_length, success_rate]
+
+training:
+  total_timesteps: 1000000
+  learning_rate: 3e-4
+  optimizer: adam
+  gamma: 0.99
+  gae_lambda: 0.95
+  n_envs: 8
+  batch_size: 256
+  n_epochs: 10
+  clip_range: 0.2
+
+evaluation:
+  n_eval_episodes: 100
+  eval_freq: 10000
+  deterministic: true
+
+pilot:
+  total_timesteps: 10000
+  n_eval_episodes: 10
+  timeout_minutes: 15

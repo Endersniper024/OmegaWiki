@@ -1,0 +1,23 @@
+# Classification experiment template
+type: classification
+metrics: [accuracy, f1, precision, recall]
+
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 1e-4
+  optimizer: adamw
+  weight_decay: 0.01
+  scheduler: cosine
+  warmup_ratio: 0.1
+  early_stopping_patience: 5
+  gradient_clip: 1.0
+
+evaluation:
+  split: test
+  metrics_average: macro
+
+pilot:
+  max_epochs: 2
+  max_samples: 1000
+  timeout_minutes: 15

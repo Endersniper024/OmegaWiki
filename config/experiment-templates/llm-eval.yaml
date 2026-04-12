@@ -1,0 +1,19 @@
+# LLM evaluation experiment template
+type: llm-eval
+metrics: [accuracy, exact_match, f1]
+
+evaluation:
+  model: ""
+  benchmark: ""
+  split: test
+  num_few_shot: 0
+  max_samples: -1
+  batch_size: 8
+  temperature: 0.0
+  max_tokens: 256
+
+pilot:
+  max_samples: 50
+  timeout_minutes: 10
+
+notes: "For evaluating LLMs on benchmarks — no training loop needed"

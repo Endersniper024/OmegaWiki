@@ -1,0 +1,6 @@
+# Local CPU environment preset
+backend: local
+gpu: false
+max_memory_gb: 16
+python_version: ">=3.9"
+notes: "For debugging, small-scale tests, and CPU-only workloads"

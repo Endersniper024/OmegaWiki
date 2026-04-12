@@ -1,0 +1,9 @@
+# Custom environment preset — copy and modify
+backend: remote-ssh    # local | remote-ssh | docker
+gpu: true
+default_gpu: 0
+notes: "Describe your custom environment here"
+
+# For remote-ssh: configure connection in config/server.yaml
+# For docker: specify image and volumes
+# For local: just set gpu: true/false

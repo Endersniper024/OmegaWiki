@@ -1,0 +1,8 @@
+# Local GPU environment preset
+backend: local
+gpu: true
+default_gpu: 0
+max_memory_gb: 32
+python_version: ">=3.9"
+cuda_version: ">=11.8"
+notes: "For local GPU training and validation"
